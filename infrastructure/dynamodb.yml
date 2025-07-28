@@ -1,0 +1,15 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Creates a dynamodb table and insert item into it (Just for testing purpose)
+
+Resources:
+  CreateTestDynamoDBTable:
+    Type: "AWS::DynamoDB::Table"
+    Properties:
+      TableName: "test-dynamodb"
+      AttributeDefinitions:
+        - AttributeName: "itemid"
+          AttributeType: "N"
+      KeySchema:
+        - AttributeName: "itemid"
+          KeyType: "HASH"
+      BillingMode: PAY_PER_REQUEST

@@ -1,0 +1,42 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Creates vpc origin for Clodfront Distribution
+
+Parameters:
+  ResourcePrefix:
+    Description: Resource prefix that will be used for all resource names 
+    Type: String
+  EnvironmentName:
+    Description: An environment name that will be used for resource names
+    Type: String 
+
+Resources:
+  VpcOrigin: 
+    Type: AWS::CloudFront::VpcOrigin
+    Properties:
+      Tags: 
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-${EnvironmentName}-vo       
+      VpcOriginEndpointConfig: 
+          Arn: !Sub "{{resolve:ssm:/${ResourcePrefix}/${EnvironmentName}-lb/arn}}"          
+          HTTPPort: 80
+          OriginProtocolPolicy: "http-only"
+          Name: !Sub ${ResourcePrefix}-${EnvironmentName}-vo
+
+  SSMForVpcOriginName:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${ResourcePrefix}/${EnvironmentName}-vo/name"
+      Type: String
+      Value: !Sub "${ResourcePrefix}-${EnvironmentName}-vo"
+
+  SSMForVpcOriginArn:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub "/${ResourcePrefix}/${EnvironmentName}-vo/arn"
+      Type: String
+      Value: !Ref VpcOrigin # need to check, and apply correct value 
+
+Outputs:
+  VpcOriginId:
+    Description: "The ID of the created VPC Origin"
+    Value: !Ref VpcOrigin # need to check, and apply correct value 

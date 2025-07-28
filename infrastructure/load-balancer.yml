@@ -1,0 +1,79 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Parameters:
+  ResourcePrefix:
+    Description: Resource prefix that will be used for all resource names
+    Type: String
+  EnvironmentName:
+    Description: An environment name that will be used for resource names
+    Type: String
+  TargetGroupArn:
+    Type: String       
+  VpcId:
+    Description: Vpc Id
+    Type: AWS::EC2::VPC::Id
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+
+Resources:
+
+  InternalALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      VpcId: !Ref VpcId
+      GroupDescription: Allow traffic from cloudfront
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          SourcePrefixListId: "pl-3b927c52"  #Allow Cloudfront - aws managed prefix list id for us-east-1
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-${EnvironmentName}-internal-alb-sg     
+  InternalALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${ResourcePrefix}-${EnvironmentName}-lb
+      Scheme: internal
+      Type: application
+      Subnets: !Ref SubnetIds
+      SecurityGroups: 
+        - !Ref InternalALBSecurityGroup
+        
+  InternalALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref InternalALB
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroupArn
+
+  SSMForLoadBalancerName:
+    Type: 'AWS::SSM::Parameter'
+    Properties:
+      Type: String
+      Description: !Sub  'Load Balancer Name'
+      Value: !Sub ${ResourcePrefix}-${EnvironmentName}-lb
+      Name: !Sub '/${ResourcePrefix}/${EnvironmentName}-lb/name'
+      Tags:
+        Name: !Sub /${ResourcePrefix}/${EnvironmentName}-lb/name
+
+  SSMForLoadBalancerArn:
+    Type: 'AWS::SSM::Parameter'
+    Properties:
+      Type: String
+      Description: !Sub 'Load Balancer ARN'
+      Value: !Ref InternalALB
+      Name: !Sub '/${ResourcePrefix}/${EnvironmentName}-lb/arn'
+      Tags:
+        Name: !Sub /${ResourcePrefix}/${EnvironmentName}-lb/arn
+
+Outputs:
+  ALBEndpoint:
+    Description: "ALB DNS Name"
+    Value: !GetAtt InternalALB.DNSName
+  ALBSecurityGroupId:
+    Description: "The ID of the ALB Security Group"
+    Value: !GetAtt InternalALBSecurityGroup.GroupId           

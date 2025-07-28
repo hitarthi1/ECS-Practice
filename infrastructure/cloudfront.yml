@@ -1,0 +1,119 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Creates CloudFront distribution pointing to the bucket
+
+# -- Parameters Definition -- #
+Parameters:
+  ResourcePrefix:
+    Description: Resource prefix that will be used for all resource names 
+    Type: String
+  EnvironmentName:
+    Description: Environment name that will be used for resource names
+    Type: String
+  BucketArn:
+    Type: String
+    Description: The Amazon Resource Name (ARN) of an S3 website bucket.
+    AllowedPattern: 'arn:aws:s3:.*'
+  BucketName:
+    Type: String
+  DomainName:
+    Type: String
+    Description: The DNS name of an existing Amazon Route 53 hosted zone
+    AllowedPattern: (?!-)[a-zA-Z0-9-.]{1,63}(?<!-)
+    ConstraintDescription: must be a valid DNS zone name.
+
+Conditions:
+  IsProductionEnvironment: !Equals [!Ref EnvironmentName, "prod"]
+  IsStagingEnvironment: !Equals [!Ref EnvironmentName, "staging"]
+# -- Resources Definition -- #
+Resources: 
+  CloudFrontDistribution:
+    DependsOn: CloudFrontOriginAccessControl
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        DefaultCacheBehavior:
+          AllowedMethods: 
+            - HEAD
+            - GET
+          CachedMethods:
+            - HEAD
+            - GET
+          Compress: true
+          ForwardedValues:
+            QueryString: true
+            Cookies:
+              Forward: none
+          MinTTL: 1296000
+          DefaultTTL: 31536000
+          MaxTTL: 31536000
+          TargetOriginId: staticContent
+          ViewerProtocolPolicy: redirect-to-https
+        CacheBehaviors:
+          - PathPattern: /static/*
+            TargetOriginId: staticContent
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods:
+              - HEAD
+              - GET
+            CachedMethods:
+              - HEAD
+              - GET
+            Compress: true
+            ForwardedValues:
+              QueryString: false
+              Cookies:
+                Forward: none
+            MinTTL: 31536000
+            DefaultTTL: 31536000
+            MaxTTL: 31536000
+        Enabled: true
+        HttpVersion: http2
+        Origins:
+          - DomainName: !Ref DomainName
+            Id: staticContent
+            S3OriginConfig:
+              OriginAccessIdentity: ""
+            OriginAccessControlId: !Ref CloudFrontOriginAccessControl
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-${EnvironmentName}--frontend-cf"
+
+  CloudFrontOriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties: 
+      OriginAccessControlConfig:
+          Description: !Sub Origin Access Control for ${BucketName}
+          Name: !Ref BucketName
+          OriginAccessControlOriginType: s3
+          SigningBehavior: always
+          SigningProtocol: sigv4
+  
+  BucketPolicyCloudFrontRead:
+    DependsOn: CloudFrontDistribution
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref BucketName
+      PolicyDocument:
+        Id: 'CloudFrontWebsiteBucketReadAccessPolicy'
+        Version: '2012-10-17'
+        Statement:
+          - Sid: "AllowCloudFrontServicePrincipal"
+            Effect: "Allow"
+            Principal:
+              Service: "cloudfront.amazonaws.com"
+            Action: "s3:GetObject"
+            Resource: 
+              - !Sub "${BucketArn}/*"
+              - !Sub "${BucketArn}"
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}"
+
+  SSMDistributionID:
+    Type: "AWS::SSM::Parameter"
+    Properties:
+      Type: String
+      Description: CDN Distribution ID
+      Value: !Ref CloudFrontDistribution
+      Name: !Sub "/${ResourcePrefix}/${EnvironmentName}/distribution/id"
+

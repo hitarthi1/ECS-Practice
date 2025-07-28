@@ -1,0 +1,171 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: CloudFormation CI CD Stack for interactive
+
+Parameters:
+  ResourcePrefix:
+    Description: Resource prefix that will be used for all resource names
+    Type: String
+    MinLength: "3"
+    MaxLength: "12"
+    AllowedPattern: "[a-z]+"
+    Default: "interactive"
+  EnvironmentName:
+    Description: Environment name that will be used for resource names
+    Type: String
+    AllowedPattern: "[a-z]+"
+  CodeStarConnectionArn:
+    Description: Arn of connection for github Repository access
+    Type: String
+Resources:
+  CloudFormationPackageS3Bucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      BucketName: !Sub "${ResourcePrefix}-${EnvironmentName}-cloudformation-scripts"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  CodeBuildRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Action:
+              - "sts:AssumeRole"
+            Principal:
+              Service:
+                - "codebuild.amazonaws.com"
+            Effect: Allow
+        Version: 2012-10-17
+      Description: Grant AWS services access to Code Build
+      Path: /
+      Policies:
+        - PolicyName: !Sub ${ResourcePrefix}-${EnvironmentName}-code-build-admin-access
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Action: "*"
+                Effect: Allow
+                Resource: "*"
+      RoleName: !Sub "${ResourcePrefix}-${EnvironmentName}-code-build-role"
+
+  LogsInfrastructureCodeBuild:
+    DependsOn: CodeBuildRole
+    Type: "AWS::Logs::LogGroup"
+    Properties:
+      RetentionInDays: 365
+      LogGroupName: !Sub "code-build-${ResourcePrefix}-${EnvironmentName}-infrastructure"
+
+  ComposerECRRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${ResourcePrefix}-${EnvironmentName}-container-cs" 
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EncryptionConfiguration: {"encryptionType": "AES256"}
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-${EnvironmentName}-container-cs-repository"
+
+  SSMComposerRepositoryName:
+    Type: 'AWS::SSM::Parameter'
+    Properties:
+      Type: String
+      Description: !Sub 'Value of container-cs Repository'
+      Value: !Ref ComposerECRRepository
+      Name: !Sub "/${ResourcePrefix}/${EnvironmentName}/ecr/container-cs"
+      Tags:
+        Name: !Sub "/${ResourcePrefix}/${EnvironmentName}/ecr/container-cs"
+
+  ProviderECRRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub "${ResourcePrefix}-${EnvironmentName}-container-pd" 
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EncryptionConfiguration: {"encryptionType": "AES256"}
+      Tags:
+        - Key: Name
+          Value: !Sub "${ResourcePrefix}-${EnvironmentName}-container-pd-repository"
+
+  SSMProviderRepositoryName:
+    Type: 'AWS::SSM::Parameter'
+    Properties:
+      Type: String
+      Description: !Sub 'Value of container-pd Repository'
+      Value: !Ref ProviderECRRepository
+      Name: !Sub "/${ResourcePrefix}/${EnvironmentName}/ecr/container-pd"
+      Tags:
+        Name: !Sub "/${ResourcePrefix}/${EnvironmentName}/ecr/container-pd"
+
+  InfrastructureCodeBuild:
+    DependsOn: LogsInfrastructureCodeBuild
+    Type: "AWS::CodeBuild::Project"
+    Properties:
+      Description: Infrastructure CloudFormation Build & Packaging
+      Source:
+        BuildSpec: buildspec/config.yml
+        Location: !Sub https://github.com/hitarthi051/interactive.co.git
+        Auth:
+          Type: CODECONNECTIONS
+          Resource: !Sub "${CodeStarConnectionArn}"
+        ReportBuildStatus: true
+        Type: GITHUB
+      Name: !Sub ${ResourcePrefix}-${EnvironmentName}-infrastructure
+      Artifacts:
+        Type: NO_ARTIFACTS
+      ServiceRole: !Ref CodeBuildRole
+      QueuedTimeoutInMinutes: 30
+      LogsConfig:
+        CloudWatchLogs:
+          GroupName: !Ref LogsInfrastructureCodeBuild
+          Status: "ENABLED"
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux-x86_64-standard:5.0
+        Type: LINUX_CONTAINER
+        EnvironmentVariables:
+          - Name: EnvironmentName
+            Type: PLAINTEXT
+            Value: !Ref EnvironmentName
+          - Name: ResourcePrefix
+            Type: PLAINTEXT
+            Value: !Ref ResourcePrefix
+          - Name: S3_Bucket
+            Type: PLAINTEXT
+            Value: !Ref CloudFormationPackageS3Bucket
+          - Name: COMPOSER_REPO_NAME
+            Type: PLAINTEXT
+            Value: !Ref ComposerECRRepository
+          - Name: PROVIDER_REPO_NAME
+            Type: PLAINTEXT
+            Value: !Ref ProviderECRRepository
+          - Name: REGION
+            Type: PLAINTEXT
+            Value: !Sub "${AWS::Region}"
+          - Name: ACCOUNT_ID
+            Type: PLAINTEXT
+            Value: !Sub "${AWS::AccountId}"
+
+      TimeoutInMinutes: 25
+
+
+Outputs:
+  ComposerRepositoryName:
+    Description: ECR Composer Repository Name
+    Value: !Ref ComposerECRRepository
+  ComposerRepositoryArn:
+    Description: ECR Composer Repository ARN
+    Value: !GetAtt ComposerECRRepository.Arn 
+  ProviderRepositoryName:
+    Description: ECR Provider Repository Name
+    Value: !Ref ProviderECRRepository
+  ProviderRepositoryArn:
+    Description: ECR Provider Repository ARN
+    Value: !GetAtt ProviderECRRepository.Arn

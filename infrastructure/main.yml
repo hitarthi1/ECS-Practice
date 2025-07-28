@@ -1,0 +1,240 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Interactive.Beleive.do Platform - Infrastructure
+
+Parameters:
+  ResourcePrefix:
+    Description: Resource prefix that will be used for all resource names.
+    Type: String
+    Default: 'IBD'
+  EnvironmentName:
+    Description: Environment name that will be used for resource names
+    Type: String
+    MinLength: '2'
+    MaxLength: '20'
+  CidrPrefix:
+    Description: IPv4 CIDR block prefix (e.g. 10.10, 172.16 etc...)
+    Type: String
+    Default: 172.16
+  ComposerName:
+    Type: String
+    Default: 'container-cs'
+  ProviderName:
+    Type: String
+    Default: 'container-pd'
+  InteractiveClusterName:
+    Type: String
+    Default: 'InteractiveCluster'
+  WAFCloudfrontEnabled:
+    Type: String
+    Description: Enable WAF (Web Application Firewall) for CloudFront
+    Default: true
+    AllowedValues:
+      - true
+      - false
+
+Conditions:
+  ProvisionWAFCloudfront: !Equals [!Ref WAFCloudfrontEnabled, true]
+Resources:
+  # StaticContentBucket:
+  #   Type: AWS::CloudFormation::Stack
+  #   Properties:
+  #     Parameters:
+  #       EnvironmentName: !Ref EnvironmentName
+  #       BucketName: 'web-static-content'
+  #       ResourcePrefix: !Ref ResourcePrefix
+  #     TemplateURL: ./s3.yml
+  #     TimeoutInMinutes: 15
+
+  # StaticContentCloudFront:
+  #   DependsOn: StaticContentBucket
+  #   Type: AWS::CloudFormation::Stack
+  #   Properties:
+  #     Parameters:
+  #       EnvironmentName: !Ref EnvironmentName
+  #       ResourcePrefix: !Ref ResourcePrefix
+  #       BucketName: !GetAtt StaticContentBucket.Outputs.BucketName
+  #       BucketArn: !GetAtt StaticContentBucket.Outputs.BucketArn
+  #       DomainName: !Sub ${StaticContentBucket.Outputs.BucketName}.s3.amazonaws.com
+  #     TemplateURL: ./cloudfront.yml
+  #     TimeoutInMinutes: 60
+
+  VPC:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        ResourcePrefix: !Ref ResourcePrefix
+        EnvironmentName: !Ref EnvironmentName
+        CidrBlock: !Sub "${CidrPrefix}.0.0/20"
+      TemplateURL: ./vpc.yml
+      TimeoutInMinutes: '5'
+       
+  SubnetA:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: VPC
+    Properties:
+      Parameters:
+        ResourcePrefix: !Ref ResourcePrefix
+        EnvironmentName: !Ref EnvironmentName
+        VpcId: !GetAtt VPC.Outputs.VpcId
+        AvailabilityZone: 'a'
+        PrivateSubnetCIDR: !Sub "${CidrPrefix}.4.0/24"
+      TemplateURL: ./subnet.yml
+      TimeoutInMinutes: 15
+
+  SubnetB:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: VPC
+    Properties:
+      Parameters:
+        ResourcePrefix: !Ref ResourcePrefix
+        EnvironmentName: !Ref EnvironmentName
+        VpcId: !GetAtt VPC.Outputs.VpcId
+        AvailabilityZone: 'b'
+        PrivateSubnetCIDR: !Sub "${CidrPrefix}.12.0/24"
+      TemplateURL: ./subnet.yml
+      TimeoutInMinutes: 15
+  
+  VPCEndpoints:
+    Type: AWS::CloudFormation::Stack
+    DependsOn:
+      - SubnetA
+      - SubnetB
+    Properties:
+      Parameters:
+        ResourcePrefix: !Ref ResourcePrefix
+        EnvironmentName: !Ref EnvironmentName
+        VpcId: !GetAtt VPC.Outputs.VpcId
+        SubnetIds:
+          !Join [
+            ',',
+            [
+              !GetAtt SubnetA.Outputs.PrivateSubnet,
+              !GetAtt SubnetB.Outputs.PrivateSubnet,
+            ],
+          ]
+        RouteTableIds:
+          !Join [
+            ',',
+            [
+              !GetAtt SubnetA.Outputs.PrivateRouteTable,
+              !GetAtt SubnetB.Outputs.PrivateRouteTable,
+            ],
+          ]
+      TemplateURL: ./vpc-endpoints.yml
+      TimeoutInMinutes: 15
+  
+  WAF:
+    Type: "AWS::CloudFormation::Stack"
+    Properties:
+      Parameters:
+        ResourcePrefix: !Ref ResourcePrefix
+        EnvironmentName: !Ref EnvironmentName
+      TemplateURL: ./waf.yml
+      TimeoutInMinutes: 30
+ 
+  DynamoDBTable:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: ./dynamodb.yml
+      TimeoutInMinutes: 15
+
+  TargetGroup:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      Parameters:
+        ResourcePrefix: !Ref ResourcePrefix
+        EnvironmentName: !Ref EnvironmentName
+        VpcId: !GetAtt VPC.Outputs.VpcId
+      TemplateURL: ./target-group.yml
+      TimeoutInMinutes: 15
+
+  LoadBalancer:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: TargetGroup
+    Properties:
+      Parameters:
+        ResourcePrefix: !Ref ResourcePrefix
+        EnvironmentName: !Ref EnvironmentName
+        TargetGroupArn: !GetAtt TargetGroup.Outputs.TargetGroupArn
+        VpcId: !GetAtt VPC.Outputs.VpcId
+        SubnetIds:
+          !Join [
+            ',',
+            [
+              !GetAtt SubnetA.Outputs.PrivateSubnet,
+              !GetAtt SubnetB.Outputs.PrivateSubnet,
+            ],
+          ]
+      TemplateURL: ./load-balancer.yml
+      TimeoutInMinutes: 15
+
+  InteractiveCluster:
+    Type: 'AWS::CloudFormation::Stack'
+    DependsOn: LoadBalancer
+    Properties:
+      Parameters:
+        ResourcePrefix: !Ref ResourcePrefix
+        EnvironmentName: !Ref EnvironmentName
+        ClusterName: !Ref InteractiveClusterName
+      TemplateURL: ./cluster.yml
+      TimeoutInMinutes: 30
+   
+  ComposerEcsServiceStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: InteractiveCluster
+    Properties:
+      TemplateURL: ./ecs.yml
+      TimeoutInMinutes: 30
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        ResourcePrefix: !Ref ResourcePrefix
+        ContainerName: !Ref ComposerName
+        ECRRepoName: !Sub ${ResourcePrefix}-${EnvironmentName}-${ComposerName}
+        ALBSecurityGroupId: !GetAtt LoadBalancer.Outputs.ALBSecurityGroupId
+        ClusterName: !Ref InteractiveClusterName
+        Service: "composer"
+        VpcId: !GetAtt VPC.Outputs.VpcId
+
+  ProviderEcsServiceStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: ComposerEcsServiceStack
+    Properties:
+      TemplateURL: ./ecs.yml
+      TimeoutInMinutes: 30
+      Parameters:
+        EnvironmentName: !Ref EnvironmentName
+        VpcId: !GetAtt VPC.Outputs.VpcId
+        ResourcePrefix: !Ref ResourcePrefix
+        ContainerName: !Ref ProviderName
+        ECRRepoName: !Sub ${ResourcePrefix}-${EnvironmentName}-${ProviderName}
+        ComposerSecurityGroupId: !GetAtt ComposerEcsServiceStack.Outputs.ComposerSecurityGroupId
+        ClusterName: !Ref InteractiveClusterName
+        ALBSecurityGroupId: !GetAtt LoadBalancer.Outputs.ALBSecurityGroupId
+        Service: "provider"
+  
+  VpcOrigin:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: InteractiveCluster
+    Properties:
+      Parameters:
+        ResourcePrefix: !Ref ResourcePrefix
+        EnvironmentName: !Ref EnvironmentName
+      TemplateURL: ./vpc-origin.yml 
+      TimeoutInMinutes: 30
+  CloudfrontBackend:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: VpcOrigin
+    DependsOn: WAF
+    Properties:
+      Parameters:
+        ResourcePrefix: !Ref ResourcePrefix
+        EnvironmentName: !Ref EnvironmentName
+        ALBEndpoint: !GetAtt LoadBalancer.Outputs.ALBEndpoint
+        VpcOriginId: !GetAtt VpcOrigin.Outputs.VpcOriginId
+        WebACLARN: !If
+          - ProvisionWAFCloudfront
+          - !GetAtt WAF.Outputs.ACLArn
+          - !Ref AWS::NoValue
+        WAFCloudfrontEnabled: !Ref WAFCloudfrontEnabled        
+      TemplateURL: ./cloudfront-backend.yml
+      TimeoutInMinutes: 30
