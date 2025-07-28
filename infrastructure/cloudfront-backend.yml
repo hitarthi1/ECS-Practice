@@ -1,0 +1,99 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Cloudfront for Backend 
+
+Parameters:
+  EnvironmentName:
+    Description: An environment name that will be used for resource names
+    Type: String
+  ResourcePrefix:
+    Description: Resource prefix that will be used for all resource names.
+    Type: String
+    MinLength: '3'
+    MaxLength: '12'
+  VpcOriginId:
+    Type: String  
+    Description: Vpc origin Id
+  ALBEndpoint:
+    Type: String  
+  WebACLARN:
+    Type: String
+    Description: WAF global ACL Arn for CloudFront
+    Default: "arn:aws:wafv2:not-confugured"
+    AllowedPattern: 'arn:aws:wafv2:.*'
+  WAFCloudfrontEnabled:
+    Type: String
+    Description: Enable WAF (Web Application Firewall) for CloudFront
+    AllowedValues:
+      - true
+      - false
+      
+Conditions:
+  ProvisionWAFCloudfront: !Equals [!Ref WAFCloudfrontEnabled, true]
+
+Resources:
+  CachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub '${ResourcePrefix}-${EnvironmentName}-custom-cachepolicy'
+        DefaultTTL: 86400 
+        MaxTTL: 31536000   
+        MinTTL: 1
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingBrotli: false
+          EnableAcceptEncodingGzip: false
+          HeadersConfig:
+            HeaderBehavior: whitelist
+            Headers:
+              - Accept
+              - Authorization
+          QueryStringsConfig:
+            QueryStringBehavior: none
+          CookiesConfig:
+            CookieBehavior: none
+
+  BackendCloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        WebACLId: !If
+          - ProvisionWAFCloudfront
+          - !Ref WebACLARN
+          - !Ref "AWS::NoValue"      
+        Origins:
+          - DomainName: !Ref ALBEndpoint
+            Id: !Ref VpcOriginId 
+            VpcOriginConfig: 
+              VpcOriginId: !Ref VpcOriginId
+        Enabled: true
+        DefaultCacheBehavior:
+          TargetOriginId: !Ref VpcOriginId
+          ViewerProtocolPolicy: allow-all
+          AllowedMethods: 
+            - GET
+            - HEAD
+            - OPTIONS
+            - PUT
+            - PATCH
+            - POST
+            - DELETE
+          CachePolicyId: !Ref CachePolicy
+        ViewerCertificate:
+          CloudFrontDefaultCertificate: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${ResourcePrefix}-${EnvironmentName}-backend-distribution'
+          
+
+  SSMforCloudfrontDistributionDNS:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: !Sub '${ResourcePrefix}-${EnvironmentName}-api-endpoint'
+      Type: String
+      Value: !Sub "https://${BackendCloudFrontDistribution.DomainName}"
+      Description: "CloudFront Distribution DNS Name"         
+
+Outputs:
+  backendURL:
+    Description: 'URL for Backend cloudfront'
+    Value: !GetAtt BackendCloudFrontDistribution.DomainName

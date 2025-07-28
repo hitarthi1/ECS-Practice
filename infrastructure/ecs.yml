@@ -1,0 +1,221 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: To create ECS Services.
+
+Parameters:
+  ResourcePrefix:
+    Description: Resource prefix that will be used for all resource names 
+    Type: String
+  EnvironmentName:
+    Description: An environment name that will be used for resource names
+    Type: String
+  ContainerName: 
+    Type: String
+  ECRRepoName:
+    Type: String
+  Region:
+    Type: String 
+    Default: 'us-east-1'
+  ClusterName:
+    Description: Cluster Name
+    Type: String
+  ALBSecurityGroupId:
+    Description: ALB Security Group Id
+    Type: String
+  Service:
+    Description: Service type (eg. composer or provider)
+    Type: String     
+  VpcId:
+    Description: Vpc Id
+    Type: AWS::EC2::VPC::Id
+  ComposerSecurityGroupId:
+    Type: String
+    Default: ""
+
+Conditions:
+  IsComposerTask: !Equals [!Ref Service, "composer" ]  
+  IsProviderTask: !Equals [!Ref Service, "provider" ]  
+
+Resources:
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties: 
+      Family : !Sub ${ResourcePrefix}-${EnvironmentName}-${ContainerName}-task-defination
+      RequiresCompatibilities:
+        - FARGATE
+      ContainerDefinitions:
+        - Name: !Ref ContainerName
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepoName}:latest
+          Essential: 'true'
+          PortMappings:
+            - ContainerPort: '8000'
+              HostPort: '8000'
+              Protocol: tcp
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Join ['', ['/ecs/', !Ref AWS::StackName]]
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+              awslogs-create-group: true
+      NetworkMode: awsvpc
+      Memory: 4GB
+      Cpu: 1vCPU
+      ExecutionRoleArn: !Sub '{{resolve:ssm:/${ResourcePrefix}/${EnvironmentName}/${ClusterName}/ExecutionRole/ARN}}'
+      TaskRoleArn: !Sub '{{resolve:ssm:/${ResourcePrefix}/${EnvironmentName}/TaskRole/ARN}}'
+
+  ComposerSecurityGroup:
+    Condition: IsComposerTask    
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${ResourcePrefix}-${EnvironmentName}-${ContainerName}-sg
+      GroupDescription: Security Group for Composer Task Ecs
+      VpcId: !Sub '{{resolve:ssm:/${ResourcePrefix}/${EnvironmentName}/vpc-id}}'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: '0.0.0.0/0'
+        - IpProtocol: "-1"
+          FromPort: 0
+          ToPort: 65535
+          SourceSecurityGroupId: !Ref ALBSecurityGroupId        
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-${EnvironmentName}-${ContainerName}-sg
+  ProviderSecurityGroup:
+    Condition: IsProviderTask
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub ${ResourcePrefix}-${EnvironmentName}-${ContainerName}-sg
+      GroupDescription: Security Group for ECS Service
+      VpcId: !Sub '{{resolve:ssm:/${ResourcePrefix}/${EnvironmentName}/vpc-id}}'
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: '0.0.0.0/0'
+        - IpProtocol: "-1"
+          FromPort: 0
+          ToPort: 65535
+          SourceSecurityGroupId: !Ref ComposerSecurityGroupId          
+      SecurityGroupEgress:
+        - IpProtocol: "-1"
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-${EnvironmentName}-${ContainerName}-sg
+  ECSComposerService:
+    DependsOn: ComposerSecurityGroup 
+    Condition: IsComposerTask
+    Type: 'AWS::ECS::Service'
+    Properties:
+      ServiceName: !Sub ${ResourcePrefix}-${EnvironmentName}-${ContainerName}-service
+      Cluster: !Sub '{{resolve:ssm:/${ResourcePrefix}/${EnvironmentName}/${ClusterName}/name}}'
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups: 
+            - !Ref ComposerSecurityGroup
+          Subnets:
+            - !Sub '{{resolve:ssm:/${ResourcePrefix}/${EnvironmentName}/ECSTasks/a}}'
+            - !Sub '{{resolve:ssm:/${ResourcePrefix}/${EnvironmentName}/ECSTasks/b}}'
+      TaskDefinition: !Ref TaskDefinition
+      LoadBalancers:
+        - TargetGroupArn: !Sub '{{resolve:ssm:/${ResourcePrefix}/${EnvironmentName}-tg/arn}}'
+          ContainerName: !Ref ContainerName
+          ContainerPort: '8000'
+
+  #Private DNS Namespace for Service Discovery
+  PrivateDNSNamespace:
+    Condition: IsProviderTask
+    Type: AWS::ServiceDiscovery::PrivateDnsNamespace
+    Properties:
+      Name: myservices.local
+      Vpc: !Ref VpcId
+
+  #Create the Service Discovery Service for Provider
+  ProviderDiscoveryService:
+    Condition: IsProviderTask
+    Type: AWS::ServiceDiscovery::Service
+    Properties:
+      Name: provider-service
+      NamespaceId: !Ref PrivateDNSNamespace
+      DnsConfig:
+        DnsRecords:
+          - Type: A
+            TTL: 10
+        RoutingPolicy: MULTIVALUE
+      HealthCheckCustomConfig:
+        FailureThreshold: 1
+
+  ECSProviderService:
+    DependsOn: ProviderSecurityGroup 
+    Condition: IsProviderTask
+    Type: 'AWS::ECS::Service'
+    Properties:
+      ServiceName: !Sub ${ResourcePrefix}-${EnvironmentName}-${ContainerName}-service
+      Cluster: !Sub '{{resolve:ssm:/${ResourcePrefix}/${EnvironmentName}/${ClusterName}/name}}'
+      LaunchType: FARGATE
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups: 
+            - !Ref ProviderSecurityGroup
+          Subnets:
+            - !Sub '{{resolve:ssm:/${ResourcePrefix}/${EnvironmentName}/ECSTasks/a}}'
+            - !Sub '{{resolve:ssm:/${ResourcePrefix}/${EnvironmentName}/ECSTasks/b}}'
+      TaskDefinition: !Ref TaskDefinition
+      ServiceRegistries:
+        - RegistryArn: !GetAtt ProviderDiscoveryService.Arn
+ 
+  AutoScalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Path: '/'
+      Policies:
+        - PolicyName: !Sub ${ResourcePrefix}-${EnvironmentName}-${ContainerName}-autoscaling-role
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecs:DescribeServices
+                  - ecs:UpdateService
+                  - cloudwatch:DeleteAlarms
+                  - cloudwatch:DescribeAlarms
+                  - cloudwatch:PutMetricAlarm
+                Resource: '*'
+  
+  AddSGOutboundToALB:
+    Condition: IsComposerTask
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties:
+      Description: "add outbound to ALB SG"
+      DestinationSecurityGroupId: !GetAtt ComposerSecurityGroup.GroupId
+      FromPort: 0
+      GroupId: !Ref ALBSecurityGroupId
+      IpProtocol: "-1"
+      ToPort: 65535
+
+Outputs:
+  ComposerSecurityGroupId:
+    Condition: IsComposerTask
+    Description: "The ID of the Ecs Composer SG"
+    Value: !GetAtt ComposerSecurityGroup.GroupId

@@ -1,0 +1,112 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Stack for creating S3 Buckets
+
+# -- Parameters Definition --
+Parameters:
+  ResourcePrefix:
+    Description: Resource prefix that will be used for all resource names 
+    Type: String
+  EnvironmentName:
+    Description: Environment name that will be used for resource names
+    Type: String
+  BucketName:
+    Description: S3 Bucket Name
+    Type: String
+  ApplyCloudWatchLogBucketPolicy:
+    Type: String
+    Default: "false"
+    Description: (Boolean) set true if you want to apply CloudWatch Log Bucket Policy. 
+  ApplyGlacierRule:
+    Type: String
+    Default: "false"
+    Description: (Boolean) set true if you want to apply Glacier Rule. 
+  UniqueSubstring:
+    Type: String
+    Description: An unique name for s3 bucket.
+    Default: ""
+    AllowedPattern: "(^$|^[a-z0-9][a-z0-9.-]*[a-z0-9]$)"
+
+Conditions:
+  HasCloudWatchLogBucketPolicy: !Equals [!Ref ApplyCloudWatchLogBucketPolicy, "true"]
+  HasGlacierRule: !Equals [!Ref ApplyGlacierRule, "true"]
+  IsUniqueSubstringEmpty: !Equals [!Ref UniqueSubstring, ""]
+  IsProductionEnvironment: !Equals [!Ref EnvironmentName, "prod"]
+  IsStagingEnvironment: !Equals [!Ref EnvironmentName, "staging"]
+
+# -- Resources Definition --
+Resources:
+  S3Bucket:
+    Type: "AWS::S3::Bucket"
+    DeletionPolicy: Retain
+    Properties:
+      BucketName:
+        !If
+          - IsUniqueSubstringEmpty
+          - !Sub "${ResourcePrefix}-${EnvironmentName}-${BucketName}"
+          - !Sub "${ResourcePrefix}-${EnvironmentName}-${BucketName}-${UniqueSubstring}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration: !If 
+        - HasGlacierRule
+        - Rules:
+            - Id: 'Move to Glacier Instant Retrieval'
+              Status: Enabled
+              Prefix: archive
+              Transitions:
+              - TransitionInDays: 30
+                StorageClass: GLACIER_IR
+        - !Ref "AWS::NoValue"
+
+  CloudWatchLogBucketPolicy:
+    DependsOn: S3Bucket
+    Condition: HasCloudWatchLogBucketPolicy
+    Type: "AWS::S3::BucketPolicy"
+    Properties:
+      Bucket: !Ref S3Bucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: 'Allow'
+          Principal:
+            Service: !Sub 'logs.${AWS::Region}.amazonaws.com'
+          Action: 's3:GetBucketAcl'
+          Resource: 
+          - !GetAtt S3Bucket.Arn
+        - Effect: 'Allow'
+          Principal:
+            Service: !Sub 'logs.${AWS::Region}.amazonaws.com'
+          Action: 's3:PutObject'
+          Resource: 
+          - !Join
+            - ''
+            - - !GetAtt S3Bucket.Arn
+              - /*
+          Condition:
+            'StringEquals':
+              's3:x-amz-acl': 'bucket-owner-full-control'
+
+  SSMS3Bucket:
+    Type: "AWS::SSM::Parameter"
+    Properties:
+      Type: String
+      Description: !Sub "Name of S3 bucket ${BucketName}"
+      Value: !Ref S3Bucket
+      Name: !Sub "/${ResourcePrefix}/${EnvironmentName}/s3/${BucketName}"
+
+Outputs:
+  BucketName:
+    Description: Name of S3 Bucket
+    Value: !Ref S3Bucket
+  BucketArn:
+    Description: Arn of S3 Bucket
+    Value: !GetAtt S3Bucket.Arn
+  DomainName:
+    Description: "The domain name of the S3 bucket"
+    Value: !GetAtt S3Bucket.DomainName

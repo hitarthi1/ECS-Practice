@@ -1,0 +1,82 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Network Infrastructure - Subnet(s)
+
+# -- Parameters Definition --
+Parameters:
+  ResourcePrefix:
+    Description: Resource prefix that will be used for all resource names
+    Type: String
+  EnvironmentName:
+    Description: Environment name that will be used for resource names
+    Type: String
+  VpcId:
+    Description: Vpc Id
+    Type: AWS::EC2::VPC::Id
+  AvailabilityZone:
+    Description: Subnet - Availability Zone
+    Type: String
+  PrivateSubnetCIDR:
+    Description: Private Subnet - Cidr Block
+    Type: String
+
+# -- Resources Definition --
+Resources: 
+ 
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: !Sub "${AWS::Region}${AvailabilityZone}"
+      VpcId: !Ref VpcId
+      CidrBlock: !Ref PrivateSubnetCIDR
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-${EnvironmentName}-private-subnet-${AvailabilityZone}
+
+  SSMPrivateSubnetId:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: Private Subnet Id
+      Type: String
+      Name: !Sub "/${ResourcePrefix}/${EnvironmentName}/private-subnet-${AvailabilityZone}"
+      Value: !Ref PrivateSubnet
+
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VpcId
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-${EnvironmentName}-Private-RouteTable-${AvailabilityZone}
+
+  PrivateRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet
+      RouteTableId: !Ref PrivateRouteTable
+       
+  PrivateSubnetId:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Description: Private Subnet Id
+      Type: String
+      Name: !Sub '/${ResourcePrefix}/${EnvironmentName}/privateSubnet/ECSTasks/${AvailabilityZone}'
+      Value: !Ref PrivateSubnet
+
+  SSMforECSClusterVPCId:
+    Type: 'AWS::SSM::Parameter'
+    Properties:
+      Type: String
+      Description: !Sub 'Subnet for '
+      Value: !Ref PrivateSubnet
+      Name: !Sub '/${ResourcePrefix}/${EnvironmentName}/ECSTasks/${AvailabilityZone}'
+
+Outputs:
+
+  PrivateSubnet:
+    Value: !Ref PrivateSubnet
+    Description: The private subnet Id
+
+  PrivateRouteTable:
+    Value: !Ref PrivateRouteTable
+    Description: The private route table Id
+

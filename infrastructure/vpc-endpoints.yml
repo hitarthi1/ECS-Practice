@@ -1,0 +1,98 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Create ECR DKR (Docker) Endpoints and ECR API Endpoint and DynamoDB VPC Endpoint  
+
+# -- Parameters Definition -- #
+Parameters:
+  ResourcePrefix:
+    Description: Resource prefix that will be used for all resource names
+    Type: String
+    MinLength: "3"
+    MaxLength: "12"
+    AllowedPattern: "[a-z]+"
+  EnvironmentName:
+    Description: Environment name that will be used for resource names
+    Type: String
+    MinLength: "2"
+    MaxLength: "7"
+    AllowedPattern: "[a-z]+"  
+  VpcId:
+    Description: Vpc Id
+    Type: AWS::EC2::VPC::Id
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+  RouteTableIds:
+    Type: List<String>
+    Description: List of Route Table IDs to associate with the VPC Endpoint
+  
+# -- Resources Definition -- #
+Resources:
+  VpcEndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Security group for VPC Endpoints"
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: '0.0.0.0/0'
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: -1
+          ToPort: -1
+          CidrIp: '0.0.0.0/0'
+
+  EcrApiEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VpcId
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ecr.api"
+      VpcEndpointType: Interface
+      SubnetIds: !Ref SubnetIds  
+      SecurityGroupIds:
+        - !Ref VpcEndpointSecurityGroup  
+      PrivateDnsEnabled: true
+
+  EcrDkrEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VpcId
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.ecr.dkr"
+      VpcEndpointType: Interface
+      SubnetIds: !Ref SubnetIds
+      SecurityGroupIds:
+        - !Ref VpcEndpointSecurityGroup  
+      PrivateDnsEnabled: true
+
+  EcrS3Endpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VpcId
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
+      VpcEndpointType: Gateway
+      RouteTableIds: !Ref RouteTableIds
+
+  EcrLogEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VpcId
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.logs"
+      VpcEndpointType: Interface
+      SubnetIds: !Ref SubnetIds
+      SecurityGroupIds:
+        - !Ref VpcEndpointSecurityGroup 
+      PrivateDnsEnabled: true
+
+  DynamoDBVPCEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref VpcId
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.dynamodb
+      RouteTableIds: !Ref RouteTableIds
+      VpcEndpointType: Gateway
+
+Outputs:
+  DynamoDBVPCEndpointId:
+    Description: DynamoDB VPC Endpoint ID
+    Value: !Ref DynamoDBVPCEndpoint
+

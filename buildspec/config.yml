@@ -1,0 +1,14 @@
+version: 0.2
+env: 
+  shell: bash
+
+phases:
+  pre_build:
+    commands:
+      - echo "Running.. latest image_push phase..."
+      - SRC_DIR=$(pwd)
+      - . ./buildspec/image_push.sh  
+  build:
+    commands:
+      - echo "Running.. pre-build phase"
+      - . ./buildspec/deploy.sh

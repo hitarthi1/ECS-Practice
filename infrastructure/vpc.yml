@@ -1,0 +1,97 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Network Infrastructure - VPC
+
+# -- Parameters Definition -- #
+Parameters:
+  ResourcePrefix:
+    Description: Resource prefix that will be used for all resource names 
+    Type: String
+  EnvironmentName:
+    Description: Environment name that will be used for resource names
+    Type: String
+  CidrBlock:
+    Description: The primary IPv4 CIDR block for the VPC
+    Type: String
+
+# -- Resources Definition -- #
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref CidrBlock
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-${EnvironmentName}-VPC
+  
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-${EnvironmentName}-IGW
+  
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # VPCFlowLogGroup:
+  #   Type: 'AWS::Logs::LogGroup'
+  #   Properties:
+  #     LogGroupName: !Sub "${ResourcePrefix}-${EnvironmentName}-vpc-flow-LogGroup"
+  #     RetentionInDays: 365
+  #     Tags:
+  #       - Key: Name
+  #         Value: !Sub ${ResourcePrefix}-${EnvironmentName}-vpc-flow-LogGroup
+
+  # VPCFlowLogRole:
+  #   Type: 'AWS::IAM::Role'
+  #   Properties:
+  #     RoleName: !Sub ${ResourcePrefix}-${EnvironmentName}-vpc-flow-log-role
+  #     Path: "/"
+  #     AssumeRolePolicyDocument:
+  #       Version: '2012-10-17'
+  #       Statement:
+  #       - Effect: Allow
+  #         Principal:
+  #           Service: 'vpc-flow-logs.amazonaws.com'
+  #         Action: 'sts:AssumeRole'
+  #     ManagedPolicyArns:
+  #       - "arn:aws:iam::aws:policy/CloudWatchLogsFullAccess"
+  #     Tags:
+  #       - Key: Name
+  #         Value: !Sub ${ResourcePrefix}-${EnvironmentName}-vpc-flow-log-role
+
+
+  # VPCFlowLog:
+  #   Type: 'AWS::EC2::FlowLog'
+  #   Properties:
+  #     DeliverLogsPermissionArn: !GetAtt 'VPCFlowLogRole.Arn'
+  #     LogGroupName: !Ref VPCFlowLogGroup
+  #     ResourceId: !Ref VPC
+  #     ResourceType: 'VPC'
+  #     TrafficType: 'REJECT'
+  #     Tags:
+  #       - Key: Name
+  #         Value: !Sub ${ResourcePrefix}-${EnvironmentName}-vpc-flow-log
+  
+  SSMforECSClusterVPCId:
+    Type: 'AWS::SSM::Parameter'
+    Properties:
+      Type: String
+      Description: !Sub 'vpc id'
+      Value: !Ref VPC
+      Name: !Sub '/${ResourcePrefix}/${EnvironmentName}/vpc-id'
+
+
+# -- Outputs -- #
+Outputs:
+  CidrBlock:
+    Description: The primary IPv4 CIDR block of the VPC.
+    Value: !Ref CidrBlock
+  VpcId:
+    Value: !Ref VPC
+    Description: The VPC unique identifier.

@@ -1,0 +1,267 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: AWS WAF Rule Set
+
+Parameters:
+  ResourcePrefix:
+    Description: Resource prefix that will be used for all resource names
+    Type: String
+  EnvironmentName:
+    Description: An environment name that will be used for resource names
+    Type: String
+
+Resources:
+  WebACL:
+    Type: AWS::WAFv2::WebACL
+    Properties:
+      Name: !Sub "${ResourcePrefix}-${EnvironmentName}-waf"
+      Description: !Sub "WEB ACL"
+      DefaultAction:
+        Allow: {}
+      Scope: CLOUDFRONT
+      VisibilityConfig:
+        SampledRequestsEnabled: true
+        CloudWatchMetricsEnabled: true
+        MetricName: !Sub "${ResourcePrefix}-${EnvironmentName}-AllRequestMetrics"
+      Rules:
+        - 
+          OverrideAction:
+            None: {}
+          Name: !Sub "${ResourcePrefix}-${EnvironmentName}-sql-injection"
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesSQLiRuleSet
+              RuleActionOverrides:
+                - ActionToUse:
+                    Allow: {}
+                  Name: SQLi_QUERYARGUMENTS
+                - ActionToUse:
+                    Allow: {}
+                  Name: SQLiExtendedPatterns_QUERYARGUMENTS
+                - ActionToUse:
+                    Allow: {}
+                  Name: SQLi_BODY
+                - ActionToUse:
+                    Allow: {}
+                  Name: SQLiExtendedPatterns_BODY
+                - ActionToUse:
+                    Allow: {}
+                  Name: SQLi_COOKIE
+                - ActionToUse:
+                    Allow: {}
+                  Name: SQLi_URIPATH
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: !Sub "${ResourcePrefix}-${EnvironmentName}-SQLInjectionMetrics"
+          Priority: 100
+        - 
+          OverrideAction:
+            None: {}
+          Name: !Sub "${ResourcePrefix}-${EnvironmentName}-AmazonIpReputationList"
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesAmazonIpReputationList
+              RuleActionOverrides:
+                - ActionToUse:
+                    Allow: {}
+                  Name: AWSManagedIPReputationList
+                - ActionToUse:
+                    Allow: {}
+                  Name: AWSManagedReconnaissanceList
+                - ActionToUse:
+                    Allow: {}
+                  Name: AWSManagedIPDDoSList
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: !Sub "${ResourcePrefix}-${EnvironmentName}-AmazonIpReputationList"
+          Priority: 150
+        - 
+          OverrideAction:
+            None: {}
+          Name: !Sub "${ResourcePrefix}-${EnvironmentName}-AnonymousIpList"
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesAnonymousIpList
+              RuleActionOverrides:
+                - ActionToUse:
+                    Allow: {}
+                  Name: AnonymousIPList
+                - ActionToUse:
+                    Allow: {}
+                  Name: HostingProviderIPList
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: !Sub "${ResourcePrefix}-${EnvironmentName}-AnonymousIpList"
+          Priority: 200
+        - 
+          OverrideAction:
+            None: {}
+          Name: !Sub "${ResourcePrefix}-${EnvironmentName}-CommonRuleSet"
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesCommonRuleSet
+              RuleActionOverrides:
+                - ActionToUse:
+                    Allow: {}
+                  Name: NoUserAgent_HEADER
+                - ActionToUse:
+                    Allow: {}
+                  Name: UserAgent_BadBots_HEADER
+                - ActionToUse:
+                    Allow: {}
+                  Name: SizeRestrictions_QUERYSTRING
+                - ActionToUse:
+                    Allow: {}
+                  Name: SizeRestrictions_Cookie_HEADER
+                - ActionToUse:
+                    Allow: {}
+                  Name: SizeRestrictions_BODY
+                - ActionToUse:
+                    Allow: {}
+                  Name: SizeRestrictions_URIPATH
+                - ActionToUse:
+                    Allow: {}
+                  Name: EC2MetaDataSSRF_BODY
+                - ActionToUse:
+                    Allow: {}
+                  Name: EC2MetaDataSSRF_COOKIE
+                - ActionToUse:
+                    Allow: {}
+                  Name : EC2MetaDataSSRF_URIPATH
+                - ActionToUse:
+                    Allow: {}
+                  Name: EC2MetaDataSSRF_QUERYARGUMENTS
+                - ActionToUse:
+                    Allow: {}
+                  Name: GenericLFI_QUERYARGUMENTS
+                - ActionToUse:
+                    Allow: {}
+                  Name: GenericLFI_BODY
+                - ActionToUse:
+                    Allow: {}
+                  Name: GenericLFI_URIPATH
+                - ActionToUse:
+                    Allow: {}
+                  Name: GenericRFI_QUERYARGUMENTS
+                - ActionToUse:
+                    Allow: {}
+                  Name: GenericRFI_BODY
+                - ActionToUse:
+                    Allow: {}
+                  Name: GenericRFI_URIPATH
+                - ActionToUse:
+                    Allow: {}
+                  Name: RestrictedExtensions_URIPATH
+                - ActionToUse:
+                    Allow: {}
+                  Name: RestrictedExtensions_QUERYARGUMENTS
+                - ActionToUse:
+                    Allow: {}
+                  Name: CrossSiteScripting_COOKIE
+                - ActionToUse:
+                    Allow: {}
+                  Name: CrossSiteScripting_BODY
+                - ActionToUse:
+                    Allow: {}
+                  Name: CrossSiteScripting_URIPATH
+                - ActionToUse:
+                    Allow: {}
+                  Name: CrossSiteScripting_QUERYARGUMENTS
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: !Sub "${ResourcePrefix}-${EnvironmentName}-CommonRuleSet"
+          Priority: 250
+        - 
+          OverrideAction:
+            None: {}
+          Name: !Sub "${ResourcePrefix}-${EnvironmentName}-KnownBadInputsRuleSet"
+          Statement:
+            ManagedRuleGroupStatement:
+              VendorName: AWS
+              Name: AWSManagedRulesKnownBadInputsRuleSet
+              RuleActionOverrides:
+                - ActionToUse:
+                    Allow: {}
+                  Name: JavaDeserializationRCE_BODY
+                - ActionToUse:
+                    Allow: {}
+                  Name: JavaDeserializationRCE_QUERYSTRING
+                - ActionToUse:
+                    Allow: {}
+                  Name: JavaDeserializationRCE_URIPATH
+                - ActionToUse:
+                    Allow: {}
+                  Name: JavaDeserializationRCE_HEADER
+                - ActionToUse:
+                    Allow: {}
+                  Name: Host_localhost_HEADER
+                - ActionToUse: 
+                    Allow: {}
+                  Name: PROPFIND_METHOD
+                - ActionToUse:
+                    Allow: {}
+                  Name: ExploitablePaths_URIPATH
+                - ActionToUse:
+                    Allow: {}
+                  Name: Log4JRCE_QUERYSTRING
+                - ActionToUse:
+                    Allow: {}
+                  Name: Log4JRCE_BODY
+                - ActionToUse:
+                    Allow: {}
+                  Name: Log4JRCE_URIPATH
+                - ActionToUse:
+                    Allow: {}
+                  Name: Log4JRCE_HEADER
+          VisibilityConfig:
+            SampledRequestsEnabled: true
+            CloudWatchMetricsEnabled: true
+            MetricName: !Sub "${ResourcePrefix}-${EnvironmentName}-KnownBadInputsRuleSet"
+          Priority: 300
+  # CloudfrontLoggingConfiguration:
+  #   Type: AWS::WAFv2::LoggingConfiguration
+  #   Properties:
+  #     LogDestinationConfigs:
+  #       - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:${CloudFrontLogGroup}"
+  #     ResourceArn: !GetAtt WebACL.Arn
+
+  # CloudFrontLogGroup:
+  #   Condition: CloudfrontServiceType
+  #   Type: AWS::Logs::LogGroup
+  #   Properties:
+  #     LogGroupName: !Sub "aws-waf-logs-${ResourcePrefix}-${EnvironmentName}-lg"
+  #     RetentionInDays: 30
+  #     Tags:
+  #       - Key: Name
+  #         Value: !Sub "aws-waf-logs-${ResourcePrefix}-${EnvironmentName}-lg"
+
+  SSMWebACLId:
+    Type: "AWS::SSM::Parameter"
+    Properties:
+      Type: String
+      Description: AWS WAF WebACL ID for Amazon Cloudfront
+      Value: !Ref WebACL
+      Name: !Sub "/${ResourcePrefix}/${EnvironmentName}/waf/id"
+
+  SSMWebACLArn:
+    Type: "AWS::SSM::Parameter"
+    Properties:
+      Type: String
+      Description: AWS WAF WebACL ARN for Amazon Cloudfront
+      Value: !GetAtt WebACL.Arn
+      Name: !Sub "/${ResourcePrefix}/${EnvironmentName}/waf/arn"
+
+Outputs:
+  ACLId:
+    Description: AWS WAF WebACL Id
+    Value: !Ref WebACL
+  ACLArn:
+    Description: AWS WAF WebACL ARN
+    Value: !GetAtt WebACL.Arn

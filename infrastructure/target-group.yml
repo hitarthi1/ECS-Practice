@@ -1,0 +1,58 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Creates target group for Alb
+
+Parameters:
+  ResourcePrefix:
+    Description: Resource prefix that will be used for all resource names 
+    Type: String
+  EnvironmentName:
+    Description: An environment name that will be used for resource names
+    Type: String
+  VpcId:
+    Description: Vpc Id
+    Type: AWS::EC2::VPC::Id
+
+Resources:
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      HealthCheckProtocol: HTTP
+      IpAddressType: ipv4
+      Name: !Sub ${ResourcePrefix}-${EnvironmentName}-tg
+      Protocol: HTTP
+      Matcher:
+        HttpCode: "200-499" 
+      Port: 8000
+      TargetType: ip
+      TargetGroupAttributes:
+        - Key: stickiness.enabled
+          Value: true
+      VpcId: !Ref VpcId
+      Tags:
+        - Key: Name
+          Value: !Sub ${ResourcePrefix}-${EnvironmentName}-tg       
+
+  SSMForTargetGroupName:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Type: String
+      Description: !Sub 'Target Group Name'
+      Value: !Sub ${ResourcePrefix}-${EnvironmentName}-tg
+      Name: !Sub '/${ResourcePrefix}/${EnvironmentName}-tg/name'
+      Tags:
+        Name: !Sub /${ResourcePrefix}/${EnvironmentName}-tg/name
+
+  SSMForTargetGroupArn:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Type: String
+      Description: !Sub 'Target Group ARN'
+      Value: !Ref TargetGroup
+      Name: !Sub '/${ResourcePrefix}/${EnvironmentName}-tg/arn'
+      Tags:
+        Name: !Sub /${ResourcePrefix}/${EnvironmentName}-tg/arn
+
+Outputs:
+  TargetGroupArn:
+    Value: !Ref TargetGroup
+    Description: ARN for Target Group  TGName
